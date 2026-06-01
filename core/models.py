@@ -117,7 +117,7 @@ class Payment(models.Model):
     payment_method = models.CharField(max_length=50, choices=[
         ('cash', 'Наличные'),
         ('card', 'Карта'),
-        ('upi', 'UPI'),
+        ('fps', 'СБП'),
         ('bank', 'Банковский перевод')
     ], verbose_name='Способ оплаты')
     transaction_id = models.CharField(max_length=100, blank=True, null=True, verbose_name='ID транзакции')

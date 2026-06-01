@@ -2,10 +2,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    # Dashboard
+    # главная страница сайта
     path('', views.home, name='home'),
 
-    # Customers
+    # блок с клентами
     path('customers/', views.customer_list, name='customer_list'),
     path('customers/add/', views.customer_add, name='customer_add'),
     path('customers/edit/<int:pk>/', views.customer_edit, name='customer_edit'),
@@ -13,20 +13,20 @@ urlpatterns = [
     path('customers/<int:pk>/', views.customer_detail, name='customer_detail'),
     path('customers/quick-add/', views.customer_quick_add, name='customer_quick_add'),
 
-    # Products
+    # Товары
     path('products/', views.product_list, name='product_list'),
     path('products/add/', views.product_add, name='product_add'),
     path('products/edit/<int:pk>/', views.product_edit, name='product_edit'),
     path('products/delete/<int:pk>/', views.product_delete, name='product_delete'),
     path('products/json/', views.product_list_json, name='product_list_json'),
 
-    # Invoices
+    # Счета
     path('invoices/delete/<int:pk>/', views.invoice_delete, name='invoice_delete'),
     path('invoices/', views.invoice_list, name='invoice_list'),
     path('invoices/add/', views.invoice_add, name='invoice_add'),
     path('invoices/<int:pk>/', views.invoice_detail, name='invoice_detail'),
     path('invoices/download/<int:pk>/', views.download_invoice_pdf, name='download_invoice_pdf'),
 
-    # Payments
+    # Платёжки
     path('payments/add/<int:invoice_id>/', views.payment_add, name='payment_add'),
 ]
