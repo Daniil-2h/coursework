@@ -1,0 +1,486 @@
+{% extends 'core/base.html' %}
+{% block title %}Создание счёта | ИнвентСофт{% endblock %}
+
+{% block extra_css %}
+<style>
+    .billing-card {
+        border-top: 4px solid var(--primary);
+    }
+    .summary-card {
+        background-color: #f8fafc;
+        border: 1px solid var(--border);
+    }
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px dashed var(--border);
+    }
+    .summary-row:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h3 class="fw-bold mb-0">Создание нового счёта</h3>
+        <p class="text-muted mb-0">Добавьте товары, примените скидку и рассчитайте налоги.</p>
+    </div>
+    <a href="{% url 'invoice_list' %}" class="btn btn-outline-secondary"><i class="fa-solid fa-arrow-left me-1"></i> К списку счетов</a>
+</div>
+
+<form id="invoiceForm" onsubmit="submitInvoice(event)">
+    {% csrf_token %}
+    <div class="row g-4">
+        <!-- Карточка информации о счёте -->
+        <div class="col-lg-8">
+            <div class="card p-4 billing-card shadow-sm mb-4">
+                <h5 class="fw-bold mb-3 text-secondary">1. Клиент и даты</h5>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Выберите клиента <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <select class="form-select" id="customerSelect" required>
+                                <option value="" disabled selected>-- Выберите клиента --</option>
+                                {% for customer in customers %}
+                                    <option value="{{ customer.id }}">{{ customer.name }} ({{ customer.email }})</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
+                                <i class="fa-solid fa-user-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Срок оплаты</label>
+                        <input type="date" class="form-control" id="dueDate">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Карточка товаров -->
+            <div class="card p-4 shadow-sm">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0 text-secondary">2. Товары в счёте</h5>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="addRow()">
+                        <i class="fa-solid fa-plus me-1"></i> Добавить строку
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="productSearch">Поиск товаров</label>
+                        <input type="text" class="form-control" id="productSearch" placeholder="Введите название товара..." onkeyup="filterProducts(this.value)">
+                    </div>
+                    <table class="table table-sm table-striped table-hover align-middle" id="itemsTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 40%;">Товар</th>
+                                <th style="width: 15%;" class="text-center">Остаток</th>
+                                <th style="width: 15%;" class="text-end">Цена (₽)</th>
+                                <th style="width: 15%;" class="text-center">Кол-во</th>
+                                <th style="width: 15%;" class="text-end">Итого (₽)</th>
+                                <th style="width: 5%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsBody">
+                            <!-- Строки добавляются динамически через JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Карточка расчёта итогов -->
+        <div class="col-lg-4">
+            <div class="card p-4 summary-card shadow-sm position-sticky" style="top: 20px;">
+                <h5 class="fw-bold mb-3 text-secondary">3. Итог счёта</h5>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Ставка налога (%)</label>
+                    <select class="form-select" id="taxRateSelect" onchange="calculateSummary()">
+                        <option value="0">0% (без налога)</option>
+                        <option value="5">5%</option>
+                        <option value="12">12%</option>
+                        <option value="18" selected>18% (стандарт)</option>
+                        <option value="28">28%</option>
+                    </select>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Скидка (₽)</label>
+                    <input type="number" step="0.01" class="form-control" id="discountInput" value="0.00" onkeyup="calculateSummary()" onchange="calculateSummary()">
+                </div>
+
+                <div class="summary-details bg-white p-3 rounded border mb-4">
+                    <div class="summary-row">
+                        <span class="text-muted">Подытог:</span>
+                        <span class="fw-semibold" id="subtotalDisplay">₽0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="text-muted">Налог (НДС):</span>
+                        <span class="fw-semibold text-danger" id="taxDisplay">₽0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="text-muted">Скидка:</span>
+                        <span class="fw-semibold text-success" id="discountDisplay">-₽0.00</span>
+                    </div>
+                    <div class="summary-row border-top-0 pt-3">
+                        <span class="fw-bold fs-5">Итого:</span>
+                        <span class="fw-bold fs-5 text-primary" id="totalDisplay">₽0.00</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-success btn-lg w-100 shadow-sm" id="submitBtn">
+                    <i class="fa-solid fa-circle-check me-1"></i> Сохранить счёт
+                </button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<!-- Модальное окно: быстрое добавление клиента -->
+<div class="modal fade" id="addCustomerModal" tabindex="-1" aria-labelledby="addCustomerModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold" id="addCustomerModalLabel"><i class="fa-solid fa-user-plus text-primary me-2"></i>Быстрое добавление клиента</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <form id="quickCustomerForm" onsubmit="saveQuickCustomer(event)">
+                <div class="modal-body">
+                    <div id="modalAlert" class="alert alert-danger d-none small"></div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Имя клиента <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="modalCustomerName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
+                        <input type="email" class="form-control" id="modalCustomerEmail">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Телефон</label>
+                        <input type="text" class="form-control" id="modalCustomerPhone">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Адрес выставления счетов</label>
+                        <textarea class="form-control" id="modalCustomerAddress" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="modalSubmitBtn">Сохранить клиента</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Переданные из представления товары
+    const products = JSON.parse('{{ products_json|safe }}');
+    // Будем хранить отфильтрованный список по поисковому запросу
+    let filteredProducts = products.slice();
+    
+    // Начальная настройка: добавить одну пустую строку при загрузке
+    document.addEventListener("DOMContentLoaded", function() {
+        addRow();
+        // Установить срок оплаты по умолчанию (через 7 дней от сегодня)
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        document.getElementById("dueDate").value = `${yyyy}-${mm}-${dd}`;
+    });
+
+    // Фильтрация товаров по поисковому запросу
+    function filterProducts(term) {
+        const lower = term.toLowerCase();
+        filteredProducts = products.filter(p => p.name.toLowerCase().includes(lower));
+        // Обновить все существующие выпадающие списки
+        document.querySelectorAll('.select-product').forEach(sel => {
+            const current = sel.value;
+            sel.innerHTML = '<option value="" disabled selected>-- Выберите товар --</option>';
+            filteredProducts.forEach(p => {
+                sel.innerHTML += `<option value="${p.id}">${p.name} (₽${p.price})</option>`;
+            });
+            // Сохранить выбранное значение, если оно ещё доступно
+            if (Array.from(sel.options).some(o => o.value === current)) {
+                sel.value = current;
+            }
+        });
+    }
+
+    function addRow() {
+        const body = document.getElementById("itemsBody");
+        const rowId = 'row_' + Date.now() + '_' + Math.floor(Math.random()*100);
+        
+        // Генерация опций для отфильтрованных товаров
+        let options = '<option value="" disabled selected>-- Выберите товар --</option>';
+        filteredProducts.forEach(p => {
+            options += `<option value="${p.id}">${p.name} (₽${p.price})</option>`;
+        });
+
+        const html = `
+            <tr id="${rowId}" class="invoice-item-row">
+                <td>
+                    <select class="form-select select-product" onchange="onProductSelect(this, '${rowId}')" required>
+                        ${options}
+                    </select>
+                </td>
+                <td class="text-center">
+                    <span class="badge bg-secondary p-2 block-stock" id="stock_${rowId}">0</span>
+                </td>
+                <td class="text-end">
+                    <input type="number" step="0.01" class="form-control form-control-lg block-price" id="price_${rowId}" onkeyup="onPriceQtyChange('${rowId}')" onchange="onPriceQtyChange('${rowId}')" required>
+                </td>
+                <td class="text-center">
+                    <input type="number" min="1" class="form-control form-control-sm block-qty" id="qty_${rowId}" value="1" onkeyup="onPriceQtyChange('${rowId}')" onchange="onPriceQtyChange('${rowId}')" required>
+                    <div class="invalid-feedback small text-danger" id="qtyFeedback_${rowId}"></div>
+                </td>
+                <td class="text-end">
+                    <span class="fw-semibold block-total" id="total_${rowId}">₽0.00</span>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-link text-danger p-0" onclick="removeRow('${rowId}')">
+                        <i class="fa-solid fa-trash-can fa-lg"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+        body.insertAdjacentHTML('beforeend', html);
+    }
+
+    function removeRow(rowId) {
+        const rows = document.querySelectorAll(".invoice-item-row");
+        if (rows.length === 1) {
+            alert("Счёт должен содержать хотя бы одну позицию.");
+            return;
+        }
+        document.getElementById(rowId).remove();
+        calculateSummary();
+    }
+
+    function onProductSelect(selectElement, rowId) {
+        const productId = selectElement.value;
+        const product = products.find(p => p.id == productId);
+        
+        if (product) {
+            document.getElementById(`stock_${rowId}`).innerText = product.stock;
+            document.getElementById(`price_${rowId}`).value = parseFloat(product.price).toFixed(2);
+            document.getElementById(`qty_${rowId}`).value = 1;
+            
+            // Окраска бейджа остатка
+            const stockBadge = document.getElementById(`stock_${rowId}`);
+            stockBadge.className = 'badge p-2';
+            if (product.stock === 0) {
+                stockBadge.classList.add('bg-danger');
+            } else if (product.stock < 10) {
+                stockBadge.classList.add('bg-warning', 'text-dark');
+            } else {
+                stockBadge.classList.add('bg-success');
+            }
+            
+            onPriceQtyChange(rowId);
+        }
+    }
+
+    function onPriceQtyChange(rowId) {
+        const price = parseFloat(document.getElementById(`price_${rowId}`).value) || 0;
+        const qtyInput = document.getElementById(`qty_${rowId}`);
+        const qty = parseInt(qtyInput.value) || 0;
+        const stock = parseInt(document.getElementById(`stock_${rowId}`).innerText) || 0;
+        
+        // Проверка остатка
+        const feedback = document.getElementById(`qtyFeedback_${rowId}`);
+        if (qty > stock) {
+            qtyInput.classList.add('is-invalid');
+            feedback.innerText = `Доступно только ${stock} ед.`;
+            document.getElementById('submitBtn').disabled = true;
+        } else {
+            qtyInput.classList.remove('is-invalid');
+            feedback.innerText = '';
+            // Проверить остальные строки перед включением кнопки отправки
+            checkSubmitButtonValidity();
+        }
+
+        const total = price * qty;
+        document.getElementById(`total_${rowId}`).innerText = '₽' + total.toFixed(2);
+        
+        calculateSummary();
+    }
+
+    function checkSubmitButtonValidity() {
+        const invalidFields = document.querySelectorAll('.block-qty.is-invalid');
+        document.getElementById('submitBtn').disabled = invalidFields.length > 0;
+    }
+
+    function calculateSummary() {
+        let subtotal = 0;
+        
+        // Проход по всем строкам
+        const rows = document.querySelectorAll(".invoice-item-row");
+        rows.forEach(row => {
+            const rowId = row.id;
+            const price = parseFloat(document.getElementById(`price_${rowId}`).value) || 0;
+            const qty = parseInt(document.getElementById(`qty_${rowId}`).value) || 0;
+            subtotal += price * qty;
+        });
+
+        const taxRate = parseFloat(document.getElementById("taxRateSelect").value) || 0;
+        const discount = parseFloat(document.getElementById("discountInput").value) || 0;
+
+        const taxAmount = subtotal * (taxRate / 100);
+        let total = subtotal + taxAmount - discount;
+        if (total < 0) total = 0;
+
+        // Отображение итогов
+        document.getElementById("subtotalDisplay").innerText = '₽' + subtotal.toFixed(2);
+        document.getElementById("taxDisplay").innerText = '₽' + taxAmount.toFixed(2);
+        document.getElementById("discountDisplay").innerText = '-₽' + discount.toFixed(2);
+        document.getElementById("totalDisplay").innerText = '₽' + total.toFixed(2);
+    }
+
+    // Модальное окно: создание клиента
+    function saveQuickCustomer(event) {
+        event.preventDefault();
+        
+        const submitBtn = document.getElementById('modalSubmitBtn');
+        const alertDiv = document.getElementById('modalAlert');
+        submitBtn.disabled = true;
+        alertDiv.classList.add('d-none');
+
+        const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const name = document.getElementById('modalCustomerName').value;
+        const email = document.getElementById('modalCustomerEmail').value;
+        const phone = document.getElementById('modalCustomerPhone').value;
+        const address = document.getElementById('modalCustomerAddress').value;
+
+        fetch("{% url 'customer_quick_add' %}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": csrftoken
+            },
+            body: JSON.stringify({ name, email, phone, address })
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => { throw new Error(err.message || 'Ошибка сервера') });
+            }
+            return res.json();
+        })
+        .then(data => {
+            // Успех: закрыть модальное окно, добавить опцию в select и выбрать её
+            const select = document.getElementById('customerSelect');
+            const option = document.createElement('option');
+            option.value = data.customer.id;
+            option.text = `${data.customer.name} (${data.customer.email})`;
+            option.selected = true;
+            select.add(option);
+            
+            // Сбросить форму модального окна
+            document.getElementById('quickCustomerForm').reset();
+            
+            // Скрыть модальное окно Bootstrap
+            const modalEl = document.getElementById('addCustomerModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            modal.hide();
+        })
+        .catch(err => {
+            alertDiv.innerText = err.message;
+            alertDiv.classList.remove('d-none');
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+        });
+    }
+
+    // Отправка счёта на сервер
+    function submitInvoice(event) {
+        event.preventDefault();
+        
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+
+        const customer = document.getElementById('customerSelect').value;
+        const dueDate = document.getElementById('dueDate').value;
+        const taxRate = parseFloat(document.getElementById('taxRateSelect').value) || 0;
+        const discountAmount = parseFloat(document.getElementById('discountInput').value) || 0;
+
+        // Собрать все позиции счёта
+        const items = [];
+        const rows = document.querySelectorAll(".invoice-item-row");
+        
+        let subtotal = 0;
+        rows.forEach(row => {
+            const rowId = row.id;
+            const productId = row.querySelector('.select-product').value;
+            const price = parseFloat(document.getElementById(`price_${rowId}`).value) || 0;
+            const qty = parseInt(document.getElementById(`qty_${rowId}`).value) || 0;
+            
+            if (productId && qty > 0) {
+                items.push({
+                    product_id: productId,
+                    quantity: qty,
+                    price: price
+                });
+                subtotal += price * qty;
+            }
+        });
+
+        if (items.length === 0) {
+            alert("Пожалуйста, добавьте хотя бы одну позицию в счёт.");
+            submitBtn.disabled = false;
+            return;
+        }
+
+        const taxAmount = subtotal * (taxRate / 100);
+        const totalAmount = Math.max(0, subtotal + taxAmount - discountAmount);
+        
+        const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        const payload = {
+            customer: customer,
+            due_date: dueDate,
+            subtotal: subtotal,
+            tax_rate: taxRate,
+            tax_amount: taxAmount,
+            discount_amount: discountAmount,
+            total_amount: totalAmount,
+            items: items
+        };
+
+        fetch("{% url 'invoice_add' %}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": csrftoken
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => { throw new Error(err.message || 'Произошла ошибка при сохранении.') });
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                window.location.href = `/invoices/${data.invoice_id}/`;
+            } else {
+                throw new Error(data.message || 'Ошибка');
+            }
+        })
+        .catch(err => {
+            alert("Ошибка: " + err.message);
+            submitBtn.disabled = false;
+        });
+    }
+</script>
+{% endblock %}
